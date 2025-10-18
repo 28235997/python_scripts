@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Secret Uploader</title>
+  <style>
+    body { font-family: Arial; margin: 40px; background-color: #f5f5f5; }
+    .container { background-color: white; padding: 30px; border-radius: 10px; width: 520px; margin: auto; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+    input, textarea { width: 100%; padding: 8px; margin: 6px 0; border-radius: 5px; border: 1px solid #ccc; }
+    button { background-color: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin-right: 8px; }
+    button:hover { background-color: #0056b3; }
+    pre { background-color: #eee; padding: 10px; border-radius: 5px; overflow-x: auto; }
+    .result { margin-top: 20px; padding: 10px; border-radius: 5px; }
+    .success { background-color: #d4edda; color: #155724; }
+    .error { background-color: #f8d7da; color: #721c24; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>🔐 Secret Upload Form</h2>
+    <form id="secretForm" method="POST" action="/send" enctype="multipart/form-data">
+      <label>API URL</label>
+      <input type="text" name="api_url" value="https://xxx.xxx.com/api/v1/secrets" required>
+
+      <label>Application ID</label>
+      <input type="number" name="app_id" value="0" required>
+
+      <label>Account</label>
+      <input type="text" name="account" required>
+
+      <label>Access Key</label>
+      <input type="text" name="access_key" required>
+
+      <label>Access Key Secret</label>
+      <input type="password" name="access_key_secret" required>
+
+      <label>Kubeconfig File (.yaml or .yml)</label>
+      <input type="file" name="kubeconfig_file" accept=".yaml,.yml">
+
+      <label>Token (optional)</label>
+      <input type="text" name="token">
+
+      <label>Credential Expiry (e.g. 2025-12-31T23:59:59Z)</label>
+      <input type="text" name="expiry" value="2025-12-31T23:59:59Z" required>
+
+      <label>API Bearer Token (optional)</label>
+      <input type="password" name="bearer_token">
+
+      <button type="button" onclick="previewJson()">Preview JSON</button>
+      <button type="submit">Send Secret</button>
+    </form>
+
+    <div id="preview" style="display:none; margin-top:20px;">
+      <h3>🧾 JSON Preview</h3>
+      <pre id="previewContent"></pre>
+    </div>
+
+    {% if result %}
+    <div class="result {{ 'success' if success else 'error' }}">
+      <strong>{{ message }}</strong><br>
+      <pre>{{ result }}</pre>
+    </div>
+    {% endif %}
+  </div>
+
+  <script>
+    async function previewJson() {
+      const form = document.getElementById("secretForm");
+      const formData = new FormData(form);
+      const res = await fetch("/preview", {
+        method: "POST",
+        body: formData
+      });
+      const json = await res.json();
+      document.getElementById("preview").style.display = "block";
+      document.getElementById("previewContent").textContent = JSON.stringify(json, null, 2);
+    }
+  </script>
+</body>
+</html>
