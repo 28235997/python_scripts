@@ -1,162 +1,212 @@
-```
+from flask import Flask, render_template, request, jsonify
+import requests
+import base64
+import json
+import os
 
-from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+app = Flask(__name__)
+app.config["UPLOAD_FOLDER"] = "uploads"
+os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
-# === Define categories, indicators, and descriptions ===
-categories = {
-    "CI/CD Pipeline Maturity": {
-        "Build Automation": "Builds trigger automatically via CI for every commit or PR.",
-        "Test Automation": "Automated unit/integration tests run in the CI pipeline.",
-        "Pipeline Reliability": "Percentage of successful builds and deployments.",
-        "Deployment Frequency": "How often the service can be deployed safely (daily/on-demand ideal).",
-        "Lead Time for Changes": "Average time from code commit to production deployment.",
-        "Rollback Capability": "Ability to quickly roll back to a previous version automatically.",
-        "Promotion Path": "Automated promotion of artifacts across environments (dev → prod)."
-    },
-    "Code & Security Hygiene": {
-        "Static Code Analysis": "Automated static code quality scanning (e.g., SonarQube, CodeQL).",
-        "Dependency Scanning": "Scan open-source dependencies for known vulnerabilities.",
-        "Secret Scanning": "Detect hardcoded credentials or tokens in repositories.",
-        "Code Review Enforcement": "Pull requests require mandatory peer review and approval.",
-        "Linting / Style Compliance": "Code follows enforced formatting and linting standards.",
-        "Open Source License Compliance": "Ensure OSS dependencies have acceptable licenses."
-    },
-    "Observability & Reliability": {
-        "Logging": "Service outputs structured, centralized logs (e.g., Loki, ELK).",
-        "Metrics": "Exports Prometheus metrics for performance and business KPIs.",
-        "Tracing": "Distributed tracing (e.g., Tempo, Jaeger) to follow requests end-to-end.",
-        "Alerting": "Alerts configured for key metrics (latency, error rate, saturation).",
-        "SLI/SLO Coverage": "Defined service-level indicators and objectives for key endpoints.",
-        "Error Budget Tracking": "Track SLO compliance and alert on error budget burn rate.",
-        "Runbook Availability": "Every alert has a corresponding operational runbook."
-    },
-    "Infrastructure & Environment Management": {
-        "Infrastructure as Code (IaC)": "All infrastructure managed declaratively (Terraform, Helm, etc.).",
-        "Immutable Deployments": "Deployments create new containers/pods; no manual patching.",
-        "Configuration Management": "Configs versioned and managed through Git (GitOps).",
-        "Secrets Management": "All credentials managed securely (Vault, KMS, etc.), not hardcoded.",
-        "Environment Parity": "Consistency between dev/staging/prod environments.",
-        "Auto Scaling": "Automatic scaling rules (HPA/KEDA) in place for load or resource usage."
-    },
-    "Operational Excellence": {
-        "Deployment Approval Workflow": "Deployment gates automated with minimal manual approval.",
-        "Incident Response": "Documented response plan and on-call rotation defined.",
-        "Postmortems": "Post-incident analysis completed for Sev1/Sev2 issues.",
-        "Chaos Testing / Resilience Tests": "Regular failure injection to validate reliability.",
-        "Performance Baselines": "Load and performance tests run periodically or before release."
-    },
-    "Governance & Compliance": {
-        "Audit Logging": "All deployment and configuration changes are logged and auditable.",
-        "RBAC & Least Privilege": "Access controls implemented following least-privilege principle.",
-        "Vulnerability Remediation SLA": "Time-bound SLA for fixing vulnerabilities (e.g., 30 days).",
-        "Artifact Provenance": "Images or artifacts are signed and verified (Cosign, Notary)."
+
+@app.route("/", methods=["GET"])
+def index():
+    return render_template("index.html")
+
+
+@app.route("/preview", methods=["POST"])
+def preview_payload():
+    """Return the JSON body that would be sent, without calling the API."""
+    try:
+        data = request.form
+        app_id = int(data["app_id"])
+        account = data["account"]
+        access_key = data["access_key"]
+        access_key_secret = data["access_key_secret"]
+        token = data.get("token", "")
+        expiry = data["expiry"]
+
+        kubeconfig = ""
+        kubeconfig_file = request.files.get("kubeconfig_file")
+        if kubeconfig_file and kubeconfig_file.filename:
+            path = os.path.join(app.config["UPLOAD_FOLDER"], kubeconfig_file.filename)
+            kubeconfig_file.save(path)
+            with open(path, "r", encoding="utf-8") as f:
+                kubeconfig = f.read()
+            os.remove(path)
+        else:
+            kubeconfig = "apiVersion: v1"
+
+        credential_dict = {
+            "kubeconfig": kubeconfig,
+            "access_key": access_key,
+            "access_key_secret": access_key_secret,
+            "token": token
+        }
+
+        credential_json = json.dumps(credential_dict)
+        credential_b64 = base64.b64encode(credential_json.encode("utf-8")).decode("utf-8")
+
+        payload = {
+            "g3application": {"id": app_id},
+            "account": account,
+            "credential": credential_b64,
+            "credentialExpiryDateAndTime": expiry
+        }
+
+        return jsonify(payload)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/send", methods=["POST"])
+def send_secret():
+    """Actually send the POST request to the target API."""
+    result = None
+    success = False
+    message = ""
+
+    try:
+        data = request.form
+        api_url = data["api_url"]
+        app_id = int(data["app_id"])
+        account = data["account"]
+        access_key = data["access_key"]
+        access_key_secret = data["access_key_secret"]
+        token = data.get("token", "")
+        expiry = data["expiry"]
+        bearer_token = data.get("bearer_token", "")
+
+        kubeconfig = ""
+        kubeconfig_file = request.files.get("kubeconfig_file")
+        if kubeconfig_file and kubeconfig_file.filename:
+            path = os.path.join(app.config["UPLOAD_FOLDER"], kubeconfig_file.filename)
+            kubeconfig_file.save(path)
+            with open(path, "r", encoding="utf-8") as f:
+                kubeconfig = f.read()
+            os.remove(path)
+        else:
+            kubeconfig = "apiVersion: v1"
+
+        credential_dict = {
+            "kubeconfig": kubeconfig,
+            "access_key": access_key,
+            "access_key_secret": access_key_secret,
+            "token": token
+        }
+
+        credential_json = json.dumps(credential_dict)
+        credential_b64 = base64.b64encode(credential_json.encode("utf-8")).decode("utf-8")
+
+        payload = {
+            "g3application": {"id": app_id},
+            "account": account,
+            "credential": credential_b64,
+            "credentialExpiryDateAndTime": expiry
+        }
+
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        if bearer_token:
+            headers["Authorization"] = f"Bearer {bearer_token}"
+
+        response = requests.post(api_url, headers=headers, json=payload)
+        result = response.text
+        if response.status_code in (200, 201):
+            success = True
+            message = "✅ Successfully uploaded secret."
+        else:
+            message = f"❌ Failed (HTTP {response.status_code})"
+
+    except Exception as e:
+        result = str(e)
+        message = "❌ Error occurred during API call."
+
+    return render_template("index.html", result=result, success=success, message=message)
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)
+
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Secret Uploader</title>
+  <style>
+    body { font-family: Arial; margin: 40px; background-color: #f5f5f5; }
+    .container { background-color: white; padding: 30px; border-radius: 10px; width: 520px; margin: auto; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+    input, textarea { width: 100%; padding: 8px; margin: 6px 0; border-radius: 5px; border: 1px solid #ccc; }
+    button { background-color: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin-right: 8px; }
+    button:hover { background-color: #0056b3; }
+    pre { background-color: #eee; padding: 10px; border-radius: 5px; overflow-x: auto; }
+    .result { margin-top: 20px; padding: 10px; border-radius: 5px; }
+    .success { background-color: #d4edda; color: #155724; }
+    .error { background-color: #f8d7da; color: #721c24; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>🔐 Secret Upload Form</h2>
+    <form id="secretForm" method="POST" action="/send" enctype="multipart/form-data">
+      <label>API URL</label>
+      <input type="text" name="api_url" value="https://xxx.xxx.com/api/v1/secrets" required>
+
+      <label>Application ID</label>
+      <input type="number" name="app_id" value="0" required>
+
+      <label>Account</label>
+      <input type="text" name="account" required>
+
+      <label>Access Key</label>
+      <input type="text" name="access_key" required>
+
+      <label>Access Key Secret</label>
+      <input type="password" name="access_key_secret" required>
+
+      <label>Kubeconfig File (.yaml or .yml)</label>
+      <input type="file" name="kubeconfig_file" accept=".yaml,.yml">
+
+      <label>Token (optional)</label>
+      <input type="text" name="token">
+
+      <label>Credential Expiry (e.g. 2025-12-31T23:59:59Z)</label>
+      <input type="text" name="expiry" value="2025-12-31T23:59:59Z" required>
+
+      <label>API Bearer Token (optional)</label>
+      <input type="password" name="bearer_token">
+
+      <button type="button" onclick="previewJson()">Preview JSON</button>
+      <button type="submit">Send Secret</button>
+    </form>
+
+    <div id="preview" style="display:none; margin-top:20px;">
+      <h3>🧾 JSON Preview</h3>
+      <pre id="previewContent"></pre>
+    </div>
+
+    {% if result %}
+    <div class="result {{ 'success' if success else 'error' }}">
+      <strong>{{ message }}</strong><br>
+      <pre>{{ result }}</pre>
+    </div>
+    {% endif %}
+  </div>
+
+  <script>
+    async function previewJson() {
+      const form = document.getElementById("secretForm");
+      const formData = new FormData(form);
+      const res = await fetch("/preview", {
+        method: "POST",
+        body: formData
+      });
+      const json = await res.json();
+      document.getElementById("preview").style.display = "block";
+      document.getElementById("previewContent").textContent = JSON.stringify(json, null, 2);
     }
-}
-
-# === Color palette (category colors + app name color) ===
-category_colors = [
-    "FFF2CC",  # CI/CD → light yellow
-    "DDEBF7",  # Code Hygiene → light blue
-    "E2EFDA",  # Observability → light green
-    "FCE4D6",  # Infra Mgmt → light orange
-    "EAD1DC",  # Operational Excellence → light purple
-    "F4CCCC"   # Governance → light red
-]
-app_name_color = "D9D9D9"  # neutral gray for application names
-
-# === Create workbook ===
-wb = Workbook()
-ws = wb.active
-ws.title = "DevOps Maturity Matrix"
-
-# === Styles ===
-bold_font = Font(bold=True)
-center_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
-border = Border(
-    left=Side(border_style="thin", color="999999"),
-    right=Side(border_style="thin", color="999999"),
-    top=Side(border_style="thin", color="999999"),
-    bottom=Side(border_style="thin", color="999999")
-)
-
-# === Header setup ===
-ws.cell(row=1, column=1, value="Application Name").font = bold_font
-ws.cell(row=1, column=1).alignment = center_align
-ws.merge_cells(start_row=1, start_column=1, end_row=2, end_column=1)
-ws.cell(row=1, column=1).fill = PatternFill(start_color=app_name_color, end_color=app_name_color, fill_type="solid")
-
-col = 2
-for idx, (category, indicators) in enumerate(categories.items()):
-    color = category_colors[idx % len(category_colors)]
-    fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
-
-    start_col = col
-    end_col = col + len(indicators) - 1
-
-    # Category merged header
-    ws.merge_cells(start_row=1, start_column=start_col, end_row=1, end_column=end_col)
-    c = ws.cell(row=1, column=start_col, value=category)
-    c.font = bold_font
-    c.alignment = center_align
-    c.fill = fill
-    c.border = border
-
-    # Indicator row
-    for indicator in indicators.keys():
-        c = ws.cell(row=2, column=col, value=indicator)
-        c.alignment = center_align
-        c.fill = fill
-        c.border = border
-        col += 1
-
-# === Example apps ===
-apps = ["bookservice", "userservice", "paymentservice", "inventoryservice"]
-
-for row_idx, app in enumerate(apps, start=3):
-    # App name cell
-    c = ws.cell(row=row_idx, column=1, value=app)
-    c.font = bold_font
-    c.alignment = center_align
-    c.fill = PatternFill(start_color=app_name_color, end_color=app_name_color, fill_type="solid")
-    c.border = border
-
-    # Fill colored value cells based on category grouping
-    col_idx = 2
-    for color_index, (category, indicators) in enumerate(categories.items()):
-        fill = PatternFill(start_color=category_colors[color_index], end_color=category_colors[color_index], fill_type="solid")
-        for _ in indicators.keys():
-            cell = ws.cell(row=row_idx, column=col_idx, value="")
-            cell.fill = fill
-            cell.border = border
-            col_idx += 1
-
-# === Formatting ===
-ws.freeze_panes = "B3"
-ws.column_dimensions['A'].width = 25
-for col_cells in ws.iter_cols(min_col=2, max_col=col - 1, min_row=2, max_row=2):
-    for cell in col_cells:
-        ws.column_dimensions[cell.column_letter].width = 22
-
-# === Add description sheet ===
-desc_ws = wb.create_sheet("Indicator Description")
-desc_ws.append(["Category", "Indicator", "Description"])
-for cell in desc_ws[1]:
-    cell.font = bold_font
-    cell.fill = PatternFill(start_color="C9C9C9", end_color="C9C9C9", fill_type="solid")
-    cell.alignment = center_align
-
-for category, indicators in categories.items():
-    for indicator, description in indicators.items():
-        desc_ws.append([category, indicator, description])
-
-desc_ws.column_dimensions['A'].width = 35
-desc_ws.column_dimensions['B'].width = 40
-desc_ws.column_dimensions['C'].width = 100
-
-# === Save ===
-wb.save("devops_maturity_matrix_fully_colored.xlsx")
-print("✅ Generated: devops_maturity_matrix_fully_colored.xlsx")
-
-
-```
+  </script>
+</body>
+</html>
