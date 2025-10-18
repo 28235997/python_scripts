@@ -207,10 +207,12 @@ if __name__ == "__main__":
       });
       const json = await res.json();
 
-```
+
       document.getElementById("preview").style.display = "block";
       document.getElementById("previewContent").textContent = JSON.stringify(json, null, 2);
     }
   </script>
 </body>
 </html>
+
+```
