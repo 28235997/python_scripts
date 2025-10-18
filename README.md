@@ -1,3 +1,5 @@
+```
+
 from flask import Flask, render_template, request, jsonify
 import requests
 import base64
@@ -127,9 +129,9 @@ def send_secret():
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
 
+```
 
-
-
+```
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -204,6 +206,8 @@ if __name__ == "__main__":
         body: formData
       });
       const json = await res.json();
+
+```
       document.getElementById("preview").style.display = "block";
       document.getElementById("previewContent").textContent = JSON.stringify(json, null, 2);
     }
